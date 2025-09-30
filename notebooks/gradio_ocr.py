@@ -3,6 +3,7 @@ import json
 import cv2
 import base64
 import requests
+from PIL import Image, ImageDraw, ImageFont
 
 
 class OCRAnnotator:
@@ -21,8 +22,8 @@ class OCRAnnotator:
         # 调用PaddleOCR进行识别
         with open(image_path, "rb") as file:
             img = base64.b64encode(file.read()).decode("ascii")
-        # payload = {"file": file_data, "fileType": 1, "visualize": False}
-        payload = {"file": img, "fileType": 1, "visualize": False}
+        # payload = {"file": file_data, "fileType": 1}
+        payload = {"file": img, "fileType": 1, "visualize": False, "useDocUnwarping": False}
         response = requests.post(self.api_url, json=payload)
         response.raise_for_status()
 
@@ -49,10 +50,26 @@ class OCRAnnotator:
             cv2.polylines(img_with_boxes, [box], True, (0, 255, 0), 1)
             
             # 添加文本标签
-            center_x = int(np.mean(box[:, 0]))
-            center_y = int(np.mean(box[:, 1]))
-            cv2.putText(img_with_boxes, str(self.current_texts[i]), (center_x, center_y), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+            # text_x = int(np.mean(box[:, 0]))
+            # text_y = int(np.mean(box[:, 1]))
+            # 指定中文字体
+            font_path = "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
+            font_size = 25
+            text_x = int(box[:,0].min())
+            text_y = int(box[:, 1].min()) - font_size - 1
+            text_y = text_y if text_y >= 0 else int(box[:, 1].max())
+            # cv2.putText 中文乱码，改用PIL绘制文本
+            # cv2.putText(img_with_boxes, str(self.current_texts[i]), (text_x, text_y), 
+            #            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+            # 将 OpenCV 图像转换为 PIL 格式
+            image_pil = Image.fromarray(cv2.cvtColor(img_with_boxes, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(image_pil)
+            font = ImageFont.truetype(font_path, size=font_size)
+            # 绘制文本
+            draw.text((text_x, text_y), str(self.current_texts[i]), font=font, fill=(255, 0, 0))
+
+            # 转换回 OpenCV 格式
+            img_with_boxes = cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
         
         # 保存临时结果图像
         output_path = "temp_annotation.jpg"
