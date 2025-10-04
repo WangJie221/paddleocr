@@ -4,6 +4,11 @@ import cv2
 import base64
 import requests
 from PIL import Image, ImageDraw, ImageFont
+import tempfile
+import shutil
+import uuid
+import os
+import time
 
 
 class OCRAnnotator:
@@ -13,9 +18,42 @@ class OCRAnnotator:
         self.current_image = None
         self.image_path = None
         self.api_url = api_url
+        self.temp_dir = tempfile.mkdtemp()
+        self.uploaded_path = 'annotation'
+
+
+    def __del__(self):
+        """清理临时文件"""
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+    
+    def save_uploaded_image(self, image):
+        """保存上传的图片到临时目录"""
+        if isinstance(image, str):
+            # 如果已经是文件路径，直接使用
+            self.image_path = image
+            return image
+        else:
+            # 保存上传的图片
+            name = str(uuid.uuid1())
+            saved_path = os.path.join(self.uploaded_path, f"uploaded_{name}.jpg")
+            
+            if isinstance(image, np.ndarray):
+                # 如果是numpy数组，使用OpenCV保存
+                cv2.imwrite(saved_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+            else:
+                # 如果是PIL图像或其他格式
+                image.save(saved_path)
+            
+            self.image_path = saved_path
+            return saved_path
 
     def perform_ocr(self, image_path):
         """执行OCR识别"""
+        # 保存上传的图片
+        image_path = self.save_uploaded_image(image_path)
+        self.current_image = cv2.imread(image_path)
+
         self.image_path = str(image_path)
         self.current_image = cv2.imread(image_path)
 
@@ -62,18 +100,20 @@ class OCRAnnotator:
             # cv2.putText(img_with_boxes, str(self.current_texts[i]), (text_x, text_y), 
             #            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
             # 将 OpenCV 图像转换为 PIL 格式
-            image_pil = Image.fromarray(cv2.cvtColor(img_with_boxes, cv2.COLOR_BGR2RGB))
-            draw = ImageDraw.Draw(image_pil)
+            img_with_boxes = Image.fromarray(cv2.cvtColor(img_with_boxes, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(img_with_boxes)
             font = ImageFont.truetype(font_path, size=font_size)
             # 绘制文本
             draw.text((text_x, text_y), str(self.current_texts[i]), font=font, fill=(255, 0, 0))
 
-            # 转换回 OpenCV 格式
-            img_with_boxes = cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
+        # 转换回 OpenCV 格式
+        img_with_boxes_bgr = cv2.cvtColor(np.array(img_with_boxes), cv2.COLOR_RGB2BGR)
         
         # 保存临时结果图像
-        output_path = "temp_annotation.jpg"
-        cv2.imwrite(output_path, img_with_boxes)
+        timestamp = str(int(time.time()))
+        output_path = os.path.join(self.temp_dir, f"annotation_{timestamp}.jpg")
+        cv2.imwrite(output_path, img_with_boxes_bgr)
+
         return output_path
     
     def get_annotation_data(self):
